@@ -22,6 +22,10 @@ reports are in the 2026-11-25 entry of [CHAT.md](CHAT.md).
 prompts, lock files or the exports of `experiments/pilot/env.sh`. A defect is reported in
 `CHAT.md` with its evidence and fixed on the local side.
 
+**Public repository.** This repository is public. Commit nothing from `PILOT_OUT`, and post no
+credentials and no internal names or paths in `CHAT.md`; the 2026-11-25 entry says how to report
+instead.
+
 **Order.** ACK, node preparation, `setup_env.sh`, `fetch_model.py`, `preflight.py`, `smoke.sh`,
 the projection, then `launch.sh`. A failed step stops the sequence until it is answered. A
 pushed commit, a passed preflight and a running job are three different things; report them

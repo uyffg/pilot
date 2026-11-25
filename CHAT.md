@@ -128,6 +128,14 @@ runs").
   it after its last finished update.
 - The other jobs keep running when one fails, except jobs that need the failed training run.
 
+**This repository is public.** Everything pushed here, this file included, can be read by
+anyone. Post no credentials or tokens, and no internal names: no host or worker names or IDs,
+no user or group names, no internal paths, no HDFS or devbox locations, no internal URLs. Call
+the nodes node A and node B, and say where something is kept in words ("on the devbox share",
+"copied to HDFS") instead of its path. Where the reports below ask for one of these, give the
+redacted form; keep the exact values in your own records. Logs and result files stay on the
+cluster: nothing under `PILOT_OUT` is committed here.
+
 **Reports.**
 
 - At launch: nodes, GPU sets, driver, sandbox mode, the package-list hashes, the job plan, and
