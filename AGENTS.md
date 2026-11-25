@@ -13,18 +13,19 @@ repository (Qwen3.5-35B-A3B, Mini-SWE agent):
    were never trained on.
 
 26 jobs, two H100 each, on **two 8 x H100 nodes (at most 16 H100 at a time)**. No GPU-hour limit; the projection from
-the smoke is posted before the launch, as information. Code: `main` at `49de58f`. The runbook is
+the smoke is reported before the launch, as information. Code: `main` at `49de58f`. The runbook is
 [experiments/pilot/README.md](experiments/pilot/README.md). The gates before any run, what may
 and may not be set on the cluster, the rules fixed before any score, the stop rules and the
 reports are in the 2026-11-25 entry of [CHAT.md](CHAT.md).
 
 **Roles.** The execution agent launches and reports. It does not change code, configurations,
-prompts, lock files or the exports of `experiments/pilot/env.sh`. A defect is reported in
-`CHAT.md` with its evidence and fixed on the local side.
+prompts, lock files or the exports of `experiments/pilot/env.sh`. A defect is reported with
+its evidence in the private channel through which the request was announced, and fixed on the
+local side.
 
-**Public repository.** This repository is public. Commit nothing from `PILOT_OUT`, and post no
-credentials and no internal names or paths in `CHAT.md`; the 2026-11-25 entry says how to report
-instead.
+**Public repository.** This repository is public, and the agent pushes nothing to it. The
+acknowledgement and every report go to that private channel, as entries whose titles start with
+`pilot:`.
 
 **Order.** ACK, node preparation, `setup_env.sh`, `fetch_model.py`, `preflight.py`, `smoke.sh`,
 the projection, then `launch.sh`. A failed step stops the sequence until it is answered. A

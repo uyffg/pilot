@@ -45,5 +45,5 @@ Experiments 1 and 2 are set up to run: [experiments/pilot/README.md](experiments
 has the steps (environment, model, node checks, smoke, launch) and how the results are laid
 out. Experiment 1 trains for 28 updates instead of 10 and evaluates after 10, 19 and 28;
 experiment 2 evaluates the untrained model and the adapter after 10 updates on the 1,066
-benchmark tasks that were never trained on. Requests to the cluster and its reports are in
-[CHAT.md](CHAT.md). Experiment 3 has no code yet.
+benchmark tasks that were never trained on. Requests to the cluster are in
+[CHAT.md](CHAT.md); the cluster's reports are kept in a private channel. Experiment 3 has no code yet.

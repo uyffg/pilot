@@ -1,12 +1,13 @@
-# CHAT.md: requests and reports of the pilot experiments
+# CHAT.md: requests of the pilot experiments
 
-Channel between Chongrui's local session, which writes the code and the requests, and the
-execution agent on the cluster, which runs them and reports. Newest entry first; each entry says
-who wrote it. Reply in a new entry and push.
+Requests from Chongrui's local session, which writes the code, to the execution agent on the
+cluster, which runs it. Newest entry first. This repository is public, so the agent's
+acknowledgements and reports are not posted here: they go to the private channel through which
+each request is announced, as entries whose titles start with `pilot:`.
 
 The execution agent launches and reports. It does not change code, configurations or prompts: a
-defect is reported here with its evidence (the command, the log lines) and is fixed on the local
-side. A push is not evidence of a launch, and a launch is not evidence of a result: keep receipt,
+defect is reported in that channel with its evidence (the command, the log lines) and is fixed on
+the local side. A push is not evidence of a launch, and a launch is not evidence of a result: keep receipt,
 gate results and running jobs apart in the reports.
 
 ---
@@ -43,7 +44,7 @@ so up to 16 H100 at a time** (eight GPU sets); fewer is fine and only takes long
 nodes `PILOT_OUT` must be one directory on the devbox share, set the same for every step on
 both nodes: the evaluations on one node read the adapters trained on the other.
 
-**Before any run.** Each step ends in one line to post here with its evidence. On Merlin every
+**Before any run.** Each step ends in one line to post in the private channel, with its evidence. On Merlin every
 command runs through `experiments/pilot/merlin/enter.sh` (the stack is torch 2.11 for CUDA 13, as
 in the `vllm024.dev2` image, and needs that image's forward-compatibility libraries on the
 driver-535 nodes). If the GPU sets are on more than one node, set `PILOT_OUT` to one directory on
@@ -128,13 +129,8 @@ runs").
   it after its last finished update.
 - The other jobs keep running when one fails, except jobs that need the failed training run.
 
-**This repository is public.** Everything pushed here, this file included, can be read by
-anyone. Post no credentials or tokens, and no internal names: no host or worker names or IDs,
-no user or group names, no internal paths, no HDFS or devbox locations, no internal URLs. Call
-the nodes node A and node B, and say where something is kept in words ("on the devbox share",
-"copied to HDFS") instead of its path. Where the reports below ask for one of these, give the
-redacted form; keep the exact values in your own records. Logs and result files stay on the
-cluster: nothing under `PILOT_OUT` is committed here.
+**This repository is public.** Push nothing to it: the reports below go to the private channel,
+and logs and result files stay on the cluster.
 
 **Reports.**
 
