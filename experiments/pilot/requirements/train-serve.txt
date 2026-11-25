@@ -1,0 +1,23 @@
+# Training and serving environment (PILOT_VENV), Python 3.12.
+#
+# The original runs did not record their package versions. The repository history names
+# vLLM 0.25.1, torch 2.11.0+cu130 and "Transformers 5.15", and the trainer prints "FLA 0.5.2".
+# The other pins are the releases that were current with those. Every pin was checked against
+# the published package for the modules and symbols this code imports
+# (experiments/pilot/README.md, "Package versions").
+#
+# This file is the source. setup_env.sh installs train-serve.lock.txt, which is this file with
+# everything it does not pin resolved as of 2026-08-31 (203 packages), so every node gets the
+# same set.
+vllm==0.25.1
+torch==2.11.0
+transformers==5.15.1
+peft==0.20.0
+accelerate==1.14.0
+liger-kernel==0.8.2
+flash-linear-attention==0.5.2
+fla-core==0.5.2
+safetensors
+huggingface-hub
+requests
+wandb

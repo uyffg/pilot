@@ -1,0 +1,38 @@
+{
+  "source": {
+    "repo_id": "bigcode/bigcodebench",
+    "repo_type": "dataset",
+    "revision": "b74c0d0bf70d2c0bc459be537895cca163007f1a",
+    "split": "v0.1.1",
+    "parquet_sha256": "5ac99814c06388246f210005a735ca3c5ca4622cd868a74f2e15e6543c4abcc9"
+  },
+  "counts": {
+    "benchmark": 1140,
+    "bcb_hard": 148,
+    "training": 74,
+    "heldout_hard": 74,
+    "nonhard": 992,
+    "never_trained": 1066
+  },
+  "repository_rows_differing_from_source": [
+    [
+      "BigCodeBench/1006",
+      "test"
+    ]
+  ],
+  "files": {
+    "bcb_nonhard_public.jsonl": {
+      "rows": 992,
+      "sha256": "e2dfd93061e8bf74fca05fd2c2b653e1e249139bfa20b7423a9376d88e2188ed"
+    },
+    "bcb_nonhard_grading.jsonl": {
+      "rows": 992,
+      "sha256": "d16afbac88e95ff4d50a08a062a8ebeac30d9d685887dd6f4d12faf9e6b93148"
+    }
+  },
+  "repository_files": {
+    "public_tasks.jsonl": "14cc2f894ae4306019962b56b20716d4123159da4ff05406b3b452daa29bdca8",
+    "grading_tasks.jsonl": "2f4897d4b542796590cc818376a9e843aac236a67217c31e8cd9b984789555cc",
+    "split.json": "8a33fff441779127f840f7e6d95c2f0df879d8328cd6e14c760ccdb5851388d7"
+  }
+}

@@ -1,0 +1,9 @@
+# Mini-SWE environment (PILOT_FRONTEND), Python 3.12. It runs `collect` and `opd-collect`:
+# the agent loop, the HTTP client and the sandbox calls. It never imports torch or transformers.
+#
+# The original runs installed `mini-swe-agent==2.4.6` into a separate environment at job start
+# on 2026-11-06 and took whatever litellm was current. This file is the source; setup_env.sh
+# installs frontend.lock.txt, its resolution as of 2026-11-07 (litellm 1.108.2, tokenizers
+# 0.23.3: the tokenizers version the original work log names for this environment).
+mini-swe-agent==2.4.6
+requests
