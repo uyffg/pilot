@@ -1,0 +1,20 @@
+{
+  "base_model": "/models/Qwen3.5-35B-A3B",
+  "base_revision": "59d61f3ce65a6d9863b86d2e96597125219dc754",
+  "rounds": 10,
+  "tasks_per_round": 8,
+  "max_turns": 160,
+  "max_tokens": 1400,
+  "review_every": 4,
+  "reviewer_turns": 4,
+  "reviewer_max_tokens": 2200,
+  "temperature": 0.7,
+  "lr": 2e-05,
+  "rank": 16,
+  "seed": 42,
+  "max_len": 131072,
+  "workers": 4,
+  "command_timeout": 120,
+  "eval_timeout": 240,
+  "prompt_profile": "Specific"
+}
