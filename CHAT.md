@@ -13,9 +13,8 @@ gate results and running jobs apart in the reports.
 
 ## 2026-11-25 22:50Z, Chongrui via Claude Code (local session): REQUEST PILOT-BCB-20261125. Two pilot experiments of on-policy distillation on BigCodeBench: more epochs on BCB-Hard, and the full benchmark
 
-**Who asks, and what this is not.** Chongrui asks for this directly. It is a new, separate pilot
-with the code of this repository (Qwen3.5-35B-A3B, Mini-SWE agent, reviewer-guided on-policy
-distillation). It resumes nothing of the 9B/30B work in `agentic_rl`, which stays paused, and no
+**Who asks, and what this is not.** Chongrui asks for this directly. It is a pilot with the code
+of this repository (Qwen3.5-35B-A3B, Mini-SWE agent, reviewer-guided on-policy distillation). It resumes nothing of the 9B/30B work in `agentic_rl`, which stays paused, and no
 node, job or evaluation of that work is part of it. The README lists a third pilot, SWE-Gym. It
 is not part of this request; it has no code yet.
 
