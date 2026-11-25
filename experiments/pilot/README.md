@@ -152,7 +152,8 @@ What was checked before any node ran this:
   torch tests pass, the chat template of the real tokenizer aligns the teacher and student
   views, and the repository's merge command round-trips a LoRA adapter on a tiny Qwen3.5 MoE
   built from the real model configuration.
-- With the Mini-SWE lock file installed: all 53 unit tests of the repository pass.
+- With the Mini-SWE lock file installed: all 53 unit tests pass, the repository's own 32 and
+  the 21 of this layer (two of them need torch and ran in the CPU environment above).
 
 What was not checked, because it needs a GPU node: vLLM serving the 35B model, the Triton
 kernels, the FSDP2 update, Bubblewrap itself. The preflight and the smoke are those checks.
