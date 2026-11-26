@@ -68,6 +68,16 @@ python -m experiments.pilot.wandb_sync --loop 900    # optional mirror to Weight
 - Starting `launch.sh` again always resumes. A training run continues after its last finished
   update, an evaluation after its last saved episode, and finished jobs are skipped.
 - A job whose worker died is taken over by another worker after 15 minutes without a heartbeat.
+  Its old claim is moved aside to `$PILOT_OUT/queue/.stale.<job>.<time>.<pid>/`, not deleted; nothing
+  in `queue/` needs editing by hand, also when a whole node is gone. Before the job's process starts,
+  the worker checks two things on `$PILOT_OUT`:
+  - its lock (`.run.lock` of the training run, `.eval.lock` of the evaluation) can be taken. If
+    it is still held after 15 minutes, for example for a process of a deleted node, the job fails
+    with `... is still locked ...` instead of waiting for ever;
+  - the episode files it will append to and read back are whole. A line that a dying node left
+    incomplete is dropped (the original file stays beside it as `<name>.pilot_partial.<time>`),
+    and its task is collected again from an empty workspace. Each repair is printed as
+    `PILOT_RESUME_REPAIRED {...}` and kept as `resume_repairs` in the job's `done.json` or `failed.json`.
 - Stopping: send TERM to `launch.sh`. The workers stop their servers and give their jobs back.
 
 ## Results
