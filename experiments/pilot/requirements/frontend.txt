@@ -6,4 +6,8 @@
 # installs frontend.lock.txt, its resolution as of 2026-11-07 (litellm 1.108.2, tokenizers
 # 0.23.3: the tokenizers version the original work log names for this environment).
 mini-swe-agent==2.4.6
+# litellm's completion path imports its MCP handler even when no MCP tool is used, so it fails
+# with "No module named 'mcp'" unless litellm's own `mcp` extra is installed. The original runs had
+# it through their system site-packages; a clean environment needs it named here.
+litellm[mcp]
 requests

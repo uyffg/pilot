@@ -276,8 +276,78 @@ def check_frontend():
         counts = {value: sum(1 for other in merged.values() if other == value) for value in sorted(set(merged.values()))}
         return f'{len(merged)} tests {counts}; {len(need_torch)} of them run in the training environment'
 
+    def agent_roundtrip():
+        """The agent side end to end, against a stand-in model server: no GPU, about a minute.
+
+        One worker-only episode (`collect`, as the evaluations run it), one training episode with
+        reviewer assessments (`opd-collect`, Specific profile, as the training runs it), both in the
+        real sandbox, then the benchmark grading of the first one in the agent environment.
+        """
+        import socket as sockets
+        agent_env = os.environ['PILOT_AGENT_ENV']
+        with sockets.socket() as probe:
+            probe.bind(('127.0.0.1', 0))
+            port = probe.getsockname()[1]
+        server = subprocess.Popen([sys.executable, HERE / 'tools' / 'stub_server.py', '--port', str(port)],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            import urllib.request
+            deadline = time.time() + 30
+            while True:
+                try:
+                    urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=2)
+                    break
+                except OSError:
+                    if time.time() > deadline:
+                        raise RuntimeError('the stand-in server did not start')
+                    time.sleep(0.5)
+            with tempfile.TemporaryDirectory(dir=os.environ['PILOT_SCRATCH'], prefix='agent-roundtrip-') as directory:
+                work = Path(directory)
+                task = (REPO / 'experiments' / 'bcb_opd' / 'public_tasks.jsonl').read_text().splitlines()[0]
+                task_id = json.loads(task)['task_id']
+                (work / 'task.jsonl').write_text(task + '\n')
+                grading = next(line for line in (REPO / 'experiments' / 'bcb_opd' / 'grading_tasks.jsonl').read_text().splitlines()
+                               if json.loads(line)['task_id'] == task_id)
+                (work / 'grading.jsonl').write_text(grading + '\n')
+                env = dict(os.environ, PYTHONPATH=str(REPO))
+                common = ['--base-url', f'http://127.0.0.1:{port}/v1', '--api-key', 'local', '--workers', '1',
+                          '--max-turns', '5', '--max-tokens', '1400', '--temperature', '0.7',
+                          '--sandbox', 'bwrap', '--agent-env', agent_env]
+                run([python, '-m', 'worker_reviewer_bench', 'collect', '--benchmark', 'bcb', '--backend', 'mini-swe',
+                     '--tasks', work / 'task.jsonl', '--output', work / 'collect.jsonl', '--workdir', work / 'collect',
+                     '--no-review', '--disable-thinking', '--review-retries', '0', '--worker-model', 'openai/opd-worker',
+                     '--prompt-profile', 'General', '--cost-limit', '0', *common], cwd=REPO, env=env, timeout=300)
+                episode = json.loads((work / 'collect.jsonl').read_text().splitlines()[0])
+                if episode.get('worker_error') or episode['worker_result'].get('exit_status') != 'Submitted' \
+                        or 'def task_func' not in episode.get('final_solution', ''):
+                    raise RuntimeError(f"collect episode: exit {episode['worker_result'].get('exit_status')}, "
+                                       f"error {episode.get('worker_error')!r}")
+                run([python, '-m', 'worker_reviewer_bench', 'opd-collect', '--backend', 'mini-swe',
+                     '--tasks', work / 'task.jsonl', '--output', work / 'opd.jsonl', '--pairs', work / 'pairs.jsonl',
+                     '--workdir', work / 'opd', '--review-root', work / 'reviews', '--round', '0',
+                     '--student-revision', 'preflight', '--worker-model', 'opd-worker', '--prompt-profile', 'Specific',
+                     '--review-every', '1', '--reviewer-turns', '1', '--reviewer-max-tokens', '512',
+                     '--command-timeout', '60', *common], cwd=REPO, env=env, timeout=300)
+                pairs = [json.loads(line) for line in (work / 'pairs.jsonl').read_text().splitlines() if line.strip()]
+                if not pairs or not all(pair['action'].get('tool_calls') for pair in pairs):
+                    raise RuntimeError(f'opd-collect wrote {len(pairs)} teacher/student pairs, or actions without tool calls')
+                grading_env = dict(os.environ, PYTHONNOUSERSITE='1', PYTHONPATH=str(REPO))
+                run([Path(agent_env) / 'bin' / 'python', '-m', 'worker_reviewer_bench', 'grade', '--benchmark', 'bcb',
+                     '--tasks', work / 'grading.jsonl', '--rows', work / 'collect.jsonl', '--out', work / 'grades.json',
+                     '--timeout', '120', '--workers', '1'], cwd=REPO, env=grading_env, timeout=300)
+                final = next(entry for entry in json.loads((work / 'grades.json').read_text()) if entry['field'] == 'final_solution')
+                result = final['results'][task_id]
+                if result.get('status') == 'error' or final['n'] != 1:
+                    raise RuntimeError(f'grading: {result}')
+                return (f"collect: Submitted; opd-collect: {len(pairs)} pairs with reviews; grade: the stand-in solution "
+                        f"ran {result.get('tests_run', 0)} benchmark tests ({result.get('status')}, as expected)")
+        finally:
+            server.terminate()
+            server.wait(timeout=30)
+
     attempt('frontend.imports', imports)
     attempt('frontend.repository_unit_tests', unit_tests)
+    attempt('frontend.agent_roundtrip', agent_roundtrip)
 
 
 def check_sandbox():
