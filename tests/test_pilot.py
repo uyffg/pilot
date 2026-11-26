@@ -583,5 +583,77 @@ class Shim(unittest.TestCase):
             self.assertEqual('\n'.join(seen), '\n'.join(expected))
 
 
+class ReviewerTimeout(unittest.TestCase):
+    """The one change to the original code: worker_reviewer_bench/client.py waits 600 s for an answer, not 180 s."""
+
+    REVIEW = json.dumps({'action': 'review', 'decision': 'continue', 'reason': 'r', 'check': 'c', 'hint': 'h'})
+
+    def test_only_the_timeout_of_the_request_changes(self):
+        from worker_reviewer_bench import client
+        calls = []
+
+        class Answer:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {'choices': [{'message': {'content': ReviewerTimeout.REVIEW}}]}
+
+        def post(url, **kwargs):
+            calls.append((url, kwargs))
+            return Answer()
+
+        chat = client.Chat('opd-worker', 'http://127.0.0.1:27000/v1/', 'local', 0.0, 2200)
+        chat.extra_body = {'chat_template_kwargs': {'enable_thinking': False}}
+        messages = [{'role': 'user', 'content': 'x'}]
+        with patch.object(client.requests, 'post', post):
+            self.assertEqual(chat.chat(messages), self.REVIEW)
+        url, kwargs = calls[0]
+        self.assertEqual(client.TIMEOUT_SECONDS, 600)
+        self.assertEqual(url, 'http://127.0.0.1:27000/v1/chat/completions')
+        self.assertEqual(kwargs, {'headers': {'Authorization': 'Bearer local'}, 'timeout': 600,
+                                  'json': {'model': 'opd-worker', 'messages': messages, 'temperature': 0.0,
+                                           'max_tokens': 2200, 'chat_template_kwargs': {'enable_thinking': False}}})
+
+    def test_an_answer_slower_than_the_timeout_fails_all_four_attempts(self):
+        """The training failure in miniature, against a real HTTP server that answers after 0.6 s."""
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import threading
+        from worker_reviewer_bench import client
+        body = json.dumps({'choices': [{'message': {'content': self.REVIEW}}]}).encode()
+        answered = []
+
+        class Slow(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers['Content-Length']))
+                threading.Event().wait(0.6)  # not time.sleep, which the test below replaces
+                try:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    answered.append(200)
+                except OSError:  # the client stopped waiting
+                    pass
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Slow)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        chat = client.Chat('opd-worker', f'http://127.0.0.1:{server.server_port}/v1', 'local', 0.0, 2200)
+        messages = [{'role': 'user', 'content': 'x'}]
+        with patch.dict(os.environ, {'NO_PROXY': '127.0.0.1,localhost', 'no_proxy': '127.0.0.1,localhost'}), \
+                patch.object(client.time, 'sleep', lambda seconds: None):
+            with patch.object(client, 'TIMEOUT_SECONDS', 0.2):
+                with self.assertRaisesRegex(RuntimeError, 'Model request failed after 4 attempts'):
+                    chat.chat(messages)
+            with patch.object(client, 'TIMEOUT_SECONDS', 5):
+                self.assertEqual(chat.chat(messages), self.REVIEW)
+
+
 if __name__ == '__main__':
     unittest.main()

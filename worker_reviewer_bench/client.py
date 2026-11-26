@@ -4,6 +4,11 @@ import time
 from typing import Any
 import requests
 
+# Seconds to wait for one answer. The original runs used 180. On the pilot nodes the server
+# generates about 12 tokens/s, so a reviewer answer that uses all of its 2,200 tokens takes
+# about 180 s and timed out; 600 s lets it arrive. Nothing else in the request changes.
+TIMEOUT_SECONDS = 600
+
 class Chat:
     def __init__(self, model, base_url, api_key, temperature, max_tokens=1400):
         self.model, self.base_url, self.api_key = model, base_url.rstrip('/'), api_key
@@ -17,7 +22,7 @@ class Chat:
                     json={'model': self.model, 'messages': messages,
                           'temperature': self.temperature,
                           'max_tokens': max_tokens or self.max_tokens,
-                          **getattr(self, 'extra_body', {})}, timeout=180)
+                          **getattr(self, 'extra_body', {})}, timeout=TIMEOUT_SECONDS)
                 response.raise_for_status()
                 return response.json()['choices'][0]['message']['content']
             except requests.RequestException:
