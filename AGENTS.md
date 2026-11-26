@@ -13,7 +13,7 @@ repository (Qwen3.5-35B-A3B, Mini-SWE agent):
    were never trained on.
 
 26 jobs, two H100 each, on **two 8 x H100 nodes (at most 16 H100 at a time)**. No GPU-hour limit; the projection from
-the smoke is reported before the launch, as information. Code: `main` at `e0f1170`. The runbook is
+the smoke is reported before the launch, as information. Code: `main` at `dfed964`. The runbook is
 [experiments/pilot/README.md](experiments/pilot/README.md). The gates before any run, what may
 and may not be set on the cluster, the rules fixed before any score, the stop rules and the
 reports are in the 2026-11-25 entry of [CHAT.md](CHAT.md).
