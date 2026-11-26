@@ -4,10 +4,12 @@
 #   bash experiments/pilot/merlin/enter.sh bash experiments/pilot/setup_env.sh
 #   nodekit run <node> pilot -- bash <checkout>/experiments/pilot/merlin/enter.sh bash experiments/pilot/launch.sh
 #
-# torch 2.11 is built for CUDA 13 and the nodes' driver is 535, so the stack runs only with the
-# forward-compatibility libraries of the image. This calls the `uniagent.sh` wrapper of the
-# agentic_rl checkout (user namespace, pivot_root into the image rootfs at $ARL/rootfs, those
-# libraries first on the library path) with this checkout as the working directory. Inside,
+# torch 2.11 is built for CUDA 13. On a node with driver 535 it needs the forward-compatibility
+# libraries of the image; on a node with driver 580 or newer it must not use them, because they
+# are older than the driver. This calls the `uniagent.sh` wrapper of the agentic_rl checkout
+# (user namespace, pivot_root into the image rootfs at $ARL/rootfs, the compat libraries first on
+# the library path, then the host's) with this checkout as the working directory, and env.sh then
+# drops every library directory whose libcuda is older than the node's kernel module. Inside,
 # /arl is the node's $ARL (default /tmp/arl), and the scripts keep everything under /arl/pilot.
 #
 # This checkout must be on the devbox share (/mlx_devbox/...): that path is bound into the image,

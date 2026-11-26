@@ -379,6 +379,42 @@ class Queue(unittest.TestCase):
         self.assertEqual(states['eval.nonhard992.General.base.s1of4'], 'failed')
 
 
+class CudaLibraryPath(unittest.TestCase):
+    """env.sh drops library directories whose libcuda is older than the kernel module."""
+
+    def resolve(self, kernel, layout):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            entries = []
+            for name, version in layout:
+                folder = root / name
+                folder.mkdir()
+                if version:
+                    (folder / f'libcuda.so.{version}').write_text('')
+                    (folder / 'libcuda.so.1').symlink_to(f'libcuda.so.{version}')
+                entries.append(str(folder))
+            script = 'source experiments/pilot/env.sh; printf "%s\\n%s" "$LD_LIBRARY_PATH" "${PILOT_CUDA_DROPPED_LIBRARY_DIRS:-}"'
+            env = dict(os.environ, PILOT_ROOT=str(root / 'pilot'), PILOT_KERNEL_DRIVER_VERSION=kernel,
+                       LD_LIBRARY_PATH=':'.join(entries))
+            output = subprocess.run(['bash', '-c', script], cwd=REPO, env=env, capture_output=True, text=True, check=True).stdout
+            kept, _, dropped = output.partition('\n')
+            return [Path(entry).name for entry in kept.split(':') if entry], dropped
+
+    def test_newer_host_driver_drops_the_compat_copy(self):
+        kept, dropped = self.resolve('580.167.08', [('compat', '580.95.05'), ('hostnv', '580.167.08'), ('fastrak', None)])
+        self.assertEqual(kept, ['hostnv', 'fastrak'])
+        self.assertIn('libcuda 580.95.05', dropped)
+
+    def test_older_host_driver_keeps_forward_compatibility(self):
+        kept, dropped = self.resolve('535.129.03', [('compat', '580.95.05'), ('hostnv', '535.129.03')])
+        self.assertEqual(kept, ['compat', 'hostnv'])
+        self.assertEqual(dropped, '')
+
+    def test_equal_versions_change_nothing(self):
+        kept, _ = self.resolve('580.95.05', [('compat', '580.95.05'), ('hostnv', '580.95.05')])
+        self.assertEqual(kept, ['compat', 'hostnv'])
+
+
 class Shim(unittest.TestCase):
     def run_shim(self, mode):
         with tempfile.TemporaryDirectory() as directory:

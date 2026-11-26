@@ -124,6 +124,10 @@ the original runs are.
 - Among the 1,066 evaluated tasks, the tests of seven touch these: BigCodeBench/459, 460, 779,
   812 (file permissions), 21, 377 (`psutil`) and 1042 (user name; a held-out hard task). They
   stay in the denominator and are worth reporting separately.
+- **CUDA driver libraries.** `env.sh` removes from the library path every directory whose
+  `libcuda` is older than the node's kernel module (an image's forward-compatibility copy on a
+  host with a newer driver), so CUDA uses the libraries of the host driver. `preflight.py`
+  reports which `libcuda` is loaded (`gpu.cuda_driver`).
 - **Agent environment.** Python 3.9 from a relocatable build with the benchmark's own
   requirements, installed with uv. The original used a conda Python 3.9 and pip.
 

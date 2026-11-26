@@ -70,3 +70,41 @@ export LITELLM_LOCAL_MODEL_COST_MAP=True MSWEA_COST_TRACKING=ignore_errors
 
 # Many sandboxes and server workers per node: use the hard file-descriptor limit.
 ulimit -Sn "$(ulimit -Hn)" 2>/dev/null || true
+
+# ---- CUDA user-space driver ----
+# libcuda must not be older than the kernel module it talks to. A CUDA forward-compatibility
+# directory (an image's /usr/local/cuda/compat) holds a newer libcuda for hosts whose driver is
+# older than the toolkit; on a host whose driver is newer than that copy, CUDA cannot start
+# ("Unexpected error from cudaGetDeviceCount()"). So every library-path entry whose libcuda is
+# older than the kernel module is dropped, and the libraries matching the host driver are used.
+# Nothing changes where no libcuda is on the path or the kernel version cannot be read.
+# PILOT_KERNEL_DRIVER_VERSION overrides the detected version (tests).
+pilot_version_lt() {
+    [[ $1 != "$2" && $(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1) == "$1" ]]
+}
+pilot_cuda_library_path() {
+    local kernel=${PILOT_KERNEL_DRIVER_VERSION:-} dir lib version entries=() kept=() dropped=()
+    if [[ -z $kernel && -r /proc/driver/nvidia/version ]]; then
+        kernel=$(awk '/NVRM/{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/){print $i; exit}}' /proc/driver/nvidia/version)
+    fi
+    if [[ -z $kernel && -r /sys/module/nvidia/version ]]; then
+        kernel=$(cat /sys/module/nvidia/version)
+    fi
+    [[ -n $kernel && -n ${LD_LIBRARY_PATH:-} ]] || return 0
+    IFS=: read -r -a entries <<<"$LD_LIBRARY_PATH"
+    for dir in "${entries[@]}"; do
+        [[ -n $dir ]] || continue
+        lib=$(find -H "$dir" -maxdepth 1 -name 'libcuda.so.[0-9]*.*' 2>/dev/null | sort -V | tail -n 1)
+        version=${lib##*/libcuda.so.}
+        if [[ -n $lib ]] && pilot_version_lt "$version" "$kernel"; then
+            dropped+=("$dir (libcuda $version)")
+            continue
+        fi
+        kept+=("$dir")
+    done
+    LD_LIBRARY_PATH=$(IFS=:; echo "${kept[*]}")
+    export LD_LIBRARY_PATH
+    export PILOT_CUDA_KERNEL_DRIVER=$kernel
+    export PILOT_CUDA_DROPPED_LIBRARY_DIRS=$(IFS=';'; echo "${dropped[*]}")
+}
+pilot_cuda_library_path

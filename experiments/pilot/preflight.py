@@ -143,6 +143,26 @@ def check_packages():
 
 
 def check_gpu(expected):
+    def cuda_driver():
+        """Which libcuda the loader picks, against the kernel module, and whether CUDA starts (no torch)."""
+        import ctypes
+        kernel = os.environ.get('PILOT_CUDA_KERNEL_DRIVER') or 'unknown'
+        dropped = os.environ.get('PILOT_CUDA_DROPPED_LIBRARY_DIRS') or 'none'
+        library = ctypes.CDLL('libcuda.so.1')
+        with open('/proc/self/maps') as handle:
+            loaded = sorted({line.split()[-1] for line in handle if 'libcuda.so' in line})
+        status = library.cuInit(0)
+        version, count = ctypes.c_int(), ctypes.c_int()
+        if status == 0:
+            status = library.cuDriverGetVersion(ctypes.byref(version)) or library.cuDeviceGetCount(ctypes.byref(count))
+        text = (f'kernel module {kernel}; libcuda loaded from {loaded}; dropped from the library path: {dropped}; '
+                f'cuInit/cuDeviceGetCount status {status}, CUDA driver API {version.value}, {count.value} devices')
+        if status != 0:
+            raise RuntimeError(text + ' (803 means libcuda and the kernel module do not match)')
+        return text
+
+    attempt('gpu.cuda_driver', cuda_driver)
+
     def devices():
         import torch
         if not torch.cuda.is_available():
