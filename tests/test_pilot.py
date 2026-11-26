@@ -379,6 +379,146 @@ class Queue(unittest.TestCase):
         self.assertEqual(states['eval.nonhard992.General.base.s1of4'], 'failed')
 
 
+class Resume(unittest.TestCase):
+    """A job taken over from a worker whose node disappeared."""
+    ROW_A = json.dumps({'task_id': 'BigCodeBench/1', 'final_solution': 'x = 1'})
+    ROW_B = json.dumps({'task_id': 'BigCodeBench/2', 'final_solution': 'y = 2'})
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name)
+        self.settings = pilot.Settings({'PILOT_OUT': str(root / 'out'), 'PILOT_SCRATCH': str(root / 'scratch'),
+                                        'PILOT_AGENT_ENV': '/agent', 'PILOT_PROFILES': 'General',
+                                        'PILOT_FULL_SHARDS': '1', 'PILOT_EVAL_ROUNDS': '10'})
+        self.table = pilot.jobs(self.settings)
+        self.by_id = {job.id: job for job in self.table}
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def write(self, path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def quiet(self):
+        return contextlib.redirect_stdout(io.StringIO())
+
+    def test_incomplete_lines_are_dropped_and_the_original_kept(self):
+        job = self.by_id['eval.heldout74.General.base']
+        out = self.settings.eval_out(job)
+        episodes = self.write(out / 'eval_episodes.jsonl', (self.ROW_A + '\n').encode() + b'\0' * 300 + b'\n'
+                              + (self.ROW_B + '\n').encode() + self.ROW_A[:25].encode())
+        infra = self.write(out / 'infra_failed.jsonl', self.ROW_B.encode())
+        with self.quiet():
+            repairs = pilot.prepare_resume(job, self.settings, wait_seconds=1)
+        self.assertEqual(episodes.read_text(), self.ROW_A + '\n' + self.ROW_B + '\n')
+        self.assertEqual(infra.read_text(), self.ROW_B + '\n')
+        by_file = {Path(entry['file']).name: entry for entry in repairs}
+        self.assertEqual((by_file['eval_episodes.jsonl']['rows_kept'], by_file['eval_episodes.jsonl']['lines_dropped']), (2, 2))
+        self.assertTrue(by_file['infra_failed.jsonl']['newline_added'])
+        original = Path(by_file['eval_episodes.jsonl']['original'])
+        self.assertTrue(original.read_bytes().endswith(self.ROW_A[:25].encode()))
+        # Whole files are left alone, and a finished collection is never touched.
+        with self.quiet():
+            self.assertEqual(pilot.prepare_resume(job, self.settings, wait_seconds=1), [])
+        (out / 'generation_complete.json').write_text('{}')
+        self.write(out / 'eval_episodes.jsonl', b'{"broken"')
+        with self.quiet():
+            self.assertEqual(pilot.prepare_resume(job, self.settings, wait_seconds=1), [])
+        self.assertEqual((out / 'eval_episodes.jsonl').read_bytes(), b'{"broken"')
+
+    def test_training_rows_only_of_an_unfinished_collection(self):
+        job = self.by_id['train.General']
+        out = self.settings.train_out(job.profile)
+        collected = self.write(out / 'round_000' / 'episodes.jsonl', b'{"broken"')
+        self.write(out / 'round_000' / 'pairs.jsonl', b'{}\n')
+        partial = self.write(out / 'round_001' / 'episodes.jsonl', (self.ROW_A + '\n' + self.ROW_B[:10]).encode())
+        with self.quiet():
+            repairs = pilot.prepare_resume(job, self.settings, wait_seconds=1)
+        self.assertEqual([Path(entry['file']) for entry in repairs], [partial])
+        self.assertEqual(partial.read_text(), self.ROW_A + '\n')
+        self.assertEqual(collected.read_bytes(), b'{"broken"')
+
+    def hold(self, path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        holder = subprocess.Popen([sys.executable, '-c', 'import fcntl, sys, time\n'
+                                   'handle = open(sys.argv[1], "a"); fcntl.flock(handle, fcntl.LOCK_EX)\n'
+                                   'print("held", flush=True); time.sleep(60)', str(path)],
+                                  stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), 'held')
+        return holder
+
+    def test_a_lock_that_stays_held_fails_the_job_instead_of_blocking_it(self):
+        job = self.by_id['train.General']
+        holder = self.hold(self.settings.train_out(job.profile) / '.run.lock')
+        marker = Path(self.directory.name) / 'started'
+        self.assertTrue(pilot.claim(job, self.settings, 0, '0,1'))
+        run = [sys.executable, '-c', 'import pathlib, sys; pathlib.Path(sys.argv[1]).touch()', str(marker)]
+        with patch.object(pilot, 'LOCK_WAIT_SECONDS', 0.3), patch.object(pilot, 'gpu_memory_used', lambda gpus: None), \
+                patch.object(pilot, 'command', lambda *args: run), self.quiet():
+            self.assertFalse(pilot.run_job(job, self.settings, 0, '0,1'))
+        failed = json.loads((self.settings.queue(job) / 'failed.json').read_text())
+        self.assertIn('still locked', failed['error'])
+        self.assertFalse(marker.exists())
+        # Once the holder is gone (its lease ended), the job starts.
+        holder.kill()
+        holder.wait()
+        with self.quiet():
+            self.assertEqual(pilot.prepare_resume(job, self.settings, wait_seconds=1), [])
+
+    def test_a_worker_takes_over_the_jobs_of_a_deleted_node(self):
+        settings = self.settings
+        train, base = self.by_id['train.General'], self.by_id['eval.heldout74.General.base']
+        for job in (train, base):   # claims of a node that stopped 20 minutes ago
+            queue = settings.queue(job)
+            queue.mkdir(parents=True)
+            (queue / 'heartbeat').write_text(str(time.time() - 20 * 60))
+            (queue / 'claim.json').write_text(json.dumps({'host': 'deleted-node', 'slot': 0, 'gpus': '0,1'}))
+        self.write(settings.train_out('General') / 'round_000' / 'episodes.jsonl',
+                   (self.ROW_A + '\n' + self.ROW_B + '\n' + self.ROW_A[:30]).encode())
+        self.write(settings.eval_out(base) / 'eval_episodes.jsonl', (self.ROW_A + '\n' + self.ROW_B).encode())
+        script = (
+            'import json, sys, pathlib\n'
+            'kind, target = sys.argv[1], pathlib.Path(sys.argv[2])\n'
+            'def rows(path):\n'
+            '    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []\n'
+            'if kind == "train":\n'
+            '    assert len(rows(target / "round_000" / "episodes.jsonl")) == 2\n'
+            '    for index in range(28):\n'
+            '        adapter = target / f"round_{index:03d}" / "adapter"; adapter.mkdir(parents=True, exist_ok=True)\n'
+            '        (adapter / "opd_update.json").write_text(json.dumps({"mean_kl": 0.02, "pairs": 29}))\n'
+            'else:\n'
+            '    seen = rows(target / "eval_episodes.jsonl")\n'
+            '    assert len(seen) == len({row["task_id"] for row in seen})\n'
+            '    with (target / "eval_episodes.jsonl").open("a") as handle:\n'
+            '        handle.write(json.dumps({"task_id": "BigCodeBench/3"}) + "\\n")\n'
+            '    assert len(rows(target / "eval_episodes.jsonl")) == len(seen) + 1\n'
+            '    score = {"passed": 1, "expected_tasks": 74}\n'
+            '    (target / "complete.json").write_text(json.dumps({"identity": {"tasks": 74},\n'
+            '        "score": {"final_solution": score, "first_submit_solution": score}, "timing": {},\n'
+            '        "context_limit_tasks": [], "infrastructure_retried": 0, "exit_status_counts": {}}))\n')
+
+        def fake_command(job, settings_, gpus, slot):
+            target = settings.train_out(job.profile) if job.kind == 'train' else settings.eval_out(job)
+            return [sys.executable, '-c', script, job.kind, str(target)]
+
+        with patch.object(pilot, 'command', fake_command), patch.object(pilot, 'gpu_memory_used', lambda gpus: None), \
+                patch.object(pilot, 'POLL_SECONDS', 0.05), patch.object(pilot.signal, 'signal', lambda *args: None), \
+                self.quiet():
+            self.assertEqual(pilot.worker(settings, 1, '2,3'), 0)
+        self.assertTrue(all(pilot.state(job, settings, self.table) == 'done' for job in self.table))
+        for job in (train, base):
+            done = json.loads((settings.queue(job) / 'done.json').read_text())
+            self.assertEqual(done['slot'], 1)
+            self.assertEqual(len(done['resume_repairs']), 1)
+            moved = list(settings.queue(job).parent.glob(f'.stale.{job.id}.*'))
+            self.assertEqual(len(moved), 1)
+            self.assertEqual(json.loads((moved[0] / 'claim.json').read_text())['host'], 'deleted-node')
+
+
 class CudaLibraryPath(unittest.TestCase):
     """env.sh drops library directories whose libcuda is older than the kernel module."""
 

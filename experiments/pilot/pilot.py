@@ -25,6 +25,7 @@ PILOT_EVAL_ROUNDS ("10 19 28"), PILOT_FULL_ROUND (10), PILOT_FULL_SHARDS (4).
 import argparse
 import ctypes
 from dataclasses import dataclass
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,8 @@ HERE = Path(__file__).resolve().parent
 HEARTBEAT_SECONDS = 60
 STALE_SECONDS = 15 * 60
 POLL_SECONDS = 60
+# How long a job waits for its own output lock before it fails (see job_locks).
+LOCK_WAIT_SECONDS = 15 * 60
 # The runner derives its server port and its allocation lock from SLURM_JOB_ID. Each slot gets
 # its own value, so that several runs can share a node. Ports: runner 27000 + slot, evaluation 21000 + slot.
 SLOT_JOB_ID_BASE = 7000
@@ -222,6 +225,110 @@ def release(job, settings, reason):
         pass
 
 
+def job_locks(job, settings):
+    """The lock files that a job's process holds on PILOT_OUT while it runs."""
+    if job.kind == 'train':
+        return [settings.train_out(job.profile) / '.run.lock']   # experiments/bcb_opd/run.py
+    return [settings.eval_out(job) / '.eval.lock']                # evaluate.py
+
+
+def appended_rows(job, settings):
+    """The JSON-lines files that a job's process appends to and reads back when it resumes."""
+    if job.kind == 'train':
+        out = settings.train_out(job.profile)
+        files = [phase / 'episodes.jsonl' for phase in sorted(out.glob('round_*'))
+                 if not (phase / 'pairs.jsonl').exists()]
+        if not (out / 'generation_complete.json').exists():
+            files.append(out / 'eval_episodes.jsonl')
+        return files
+    out = settings.eval_out(job)
+    if (out / 'generation_complete.json').exists():
+        return []
+    return [out / 'eval_episodes.jsonl', out / 'infra_failed.jsonl']
+
+
+def acquire_locks(paths, wait_seconds):
+    """Take every lock without blocking, retrying until wait_seconds have passed.
+
+    Only the claimed worker runs a job, so nobody else should hold these locks. One that stays
+    held belongs to a process the queue no longer sees, for example on a node that was deleted
+    while it held a lock on shared storage. That fails the job with a message instead of
+    leaving it blocked, with a live heartbeat, for ever.
+    """
+    handles, deadline = [], time.time() + wait_seconds
+    try:
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handle = path.open('a')
+            handles.append(handle)
+            while True:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.time() >= deadline:
+                        raise RuntimeError(f'{path} is still locked after {wait_seconds:.0f} s. No worker of the '
+                                           'queue holds it; it may be held for a process on a node that no longer '
+                                           'exists. Not starting the job.') from None
+                    time.sleep(min(10.0, max(0.05, wait_seconds / 20)))
+    except BaseException:
+        for handle in handles:
+            handle.close()
+        raise
+    return handles
+
+
+def repair_rows(paths):
+    """Make each JSON-lines file safe to append to and to read back.
+
+    A node that disappears while a process appends can leave an incomplete last line, a block
+    of zero bytes, or a complete last row without its newline. Every line that is not a complete
+    JSON row is dropped and a missing final newline is added. The original file is kept beside it
+    (<name>.pilot_partial.<time>). The task of a dropped row has no saved episode, so it is
+    collected again from an empty workspace, as after an infrastructure failure.
+    """
+    repairs = []
+    for path in paths:
+        if not path.exists():
+            continue
+        raw = path.read_bytes()
+        kept, dropped = [], 0
+        for line in raw.split(b'\n'):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line.decode('utf-8-sig'))
+                if not isinstance(row, dict):
+                    raise ValueError('not a row')
+            except ValueError:   # includes UnicodeDecodeError and json.JSONDecodeError
+                dropped += 1
+                continue
+            kept.append(line)
+        missing_newline = bool(raw) and not raw.endswith(b'\n')
+        if not dropped and not missing_newline:
+            continue
+        original = path.with_name(f'{path.name}.pilot_partial.{int(time.time())}')
+        shutil.copy2(path, original)
+        temporary = path.with_name(path.name + '.pilot_repair.tmp')
+        temporary.write_bytes(b''.join(line + b'\n' for line in kept))
+        temporary.replace(path)
+        repair = {'file': str(path), 'rows_kept': len(kept), 'lines_dropped': dropped,
+                  'newline_added': missing_newline and not dropped, 'original': str(original)}
+        print('PILOT_RESUME_REPAIRED', json.dumps(repair), flush=True)
+        repairs.append(repair)
+    return repairs
+
+
+def prepare_resume(job, settings, wait_seconds=None):
+    """Before a job's process starts: its locks are free, and what it reads back is whole."""
+    handles = acquire_locks(job_locks(job, settings), LOCK_WAIT_SECONDS if wait_seconds is None else wait_seconds)
+    try:
+        return repair_rows(appended_rows(job, settings))
+    finally:
+        for handle in handles:
+            handle.close()
+
+
 def become_subreaper():
     """Orphaned descendants (a server whose runner died) are re-parented to this worker, which stops them."""
     try:
@@ -318,6 +425,7 @@ def run_job(job, settings, slot, gpus):
 
     threading.Thread(target=beat, daemon=True).start()
     try:
+        record['resume_repairs'] = prepare_resume(job, settings)
         wait_for_free_gpus(gpus)
         with log.open('a') as handle:
             handle.write(f"\n===== {timestamp()} {job.id} on {record['host']} slot {slot} gpus {gpus} =====\n"
