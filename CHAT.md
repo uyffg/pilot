@@ -19,15 +19,17 @@ of this repository (Qwen3.5-35B-A3B, Mini-SWE agent, reviewer-guided on-policy d
 node, job or evaluation of that work is part of it. The README lists a third pilot, SWE-Gym. It
 is not part of this request; it has no code yet.
 
-**Code.** `uyffg/pilot`, branch `main`, code at `3683243` (the launch layer `49de58f` and three fixes:
+**Code.** `uyffg/pilot`, branch `main`, code at `ef4e84e` (the launch layer `49de58f` and four fixes:
 `e0f1170`, CUDA driver libraries on nodes with a driver newer than the image's compat copy;
 `dfed964`, litellm's `mcp` extra in the Mini-SWE environment and an agent round trip in the preflight;
-`3683243`, a job taken over from a lost node checks its lock and repairs incomplete episode lines first);
-later commits on `main` that touch only documentation (`*.md`) are fine to run from. Check the repository out on the devbox share, so that the image sees it.
+`3683243`, a job taken over from a lost node checks its lock and repairs incomplete episode lines first;
+`ef4e84e`, the reviewer waits 600 s for an answer instead of 180 s);
+later commits on `main` that touch only documentation (`*.md`) or only `experiments/pilot/tools/` are fine to run from. Check the repository out on the devbox share, so that the image sees it.
 `experiments/pilot/README.md` is the runbook: the steps, the files, the settings, the result
-layout. The distillation code itself is untouched: every file outside `experiments/pilot/`,
+layout. The distillation code itself is unchanged except for one number: every file outside `experiments/pilot/`,
 `tests/test_pilot.py`, `README.md`, `CHAT.md` and `AGENTS.md` is byte-identical to the first
-commit of this repository (`c08cc69`); `git diff --stat c08cc69 3683243` shows no deleted or changed line in them.
+commit of this repository (`c08cc69`), except `worker_reviewer_bench/client.py`, whose request timeout is
+600 s instead of 180 s (README, "What differs from the original runs"); `git diff --stat c08cc69 ef4e84e` shows it.
 
 **What runs.** 26 jobs, two H100 each, from one shared job table
 (`python -m experiments.pilot.pilot plan --commands` prints them with their commands):

@@ -140,6 +140,16 @@ the original runs are.
   reports which `libcuda` is loaded (`gpu.cuda_driver`).
 - **Agent environment.** Python 3.9 from a relocatable build with the benchmark's own
   requirements, installed with uv. The original used a conda Python 3.9 and pip.
+- **Reviewer timeout (the one change to the original code).** `worker_reviewer_bench/client.py`,
+  which only the training reviewer uses, waits 600 s for an answer instead of 180 s. With the
+  original server flags these nodes generate about 12 tokens/s, so a reviewer answer that uses
+  all of its 2,200 tokens takes about 180 s. At 180 s every attempt of such a review timed out,
+  and because the reviewer samples at temperature 0 the retries asked for the same answer, so the
+  round's collection failed. Both training runs stopped this way on 2026-11-26 (in rounds 3 and
+  10), and a replay of the failed review measured 176 s with `finish_reason: length`. Reviews
+  that arrived within 180 s are unchanged. A review that now arrives late follows the
+  reviewer's own path for an incomplete answer, so the updates finished before the change stay
+  valid and training resumes from them. Evaluations do not use this client.
 
 ## Package versions
 
